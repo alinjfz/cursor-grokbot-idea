@@ -1,264 +1,238 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import type { Bundle, Pot } from "@/src/contract/types";
-import { choose, loadPot, pay } from "./data";
+import { useEffect, useMemo, useState } from "react";
+import type { FindResponse, ProductFind, ShoppingBrief } from "@/src/discovery/types";
 import styles from "./screen.module.css";
 
-const BEFORE_KEY = "pot-balance-before";
+type Profile = {
+  name: string; interests: string; avoid: string; budgetPence: number;
+  reminder: string; seenIds: string[]; liked: string[];
+};
+type Moment = "lift" | "celebrate";
+const PROFILE_KEY = "sam-companion-profile-v1";
+const NUDGE_KEY = "sam-last-nudge-v1";
+const STARTER: Profile = { name: "", interests: "", avoid: "", budgetPence: 4000, reminder: "", seenIds: [], liked: [] };
+const INTERESTS = ["Coffee", "Desk gear", "Fitness", "Gaming", "Food", "Grooming", "Books", "Outdoors", "Tech"];
+const pounds = (pence: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(pence / 100);
+const today = () => new Date().toLocaleDateString("en-CA");
 
-function pounds(pence: number) {
-  return new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "GBP",
-  }).format(pence / 100);
+function timePassed(time: string) {
+  if (!time) return false;
+  const [hours, minutes] = time.split(":").map(Number);
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes() >= hours * 60 + minutes;
+}
+
+function productKind(item: ProductFind) {
+  const title = item.title.toLowerCase();
+  const description = item.description.toLowerCase();
+  const t = `${title} ${description}`;
+  if (/\b(mug|coffee cup|tea cup|tumbler)\b/.test(title)) return "drinkware";
+  if (/\b(coffee|beans?|roast(?:ed|er)?|tea leaves|blend)\b/.test(t)) return "drink";
+  if (/\b(mug|tumbler)\b/.test(description)) return "drinkware";
+  if (/\b(chocolate|snack|biscuits|cookies)\b/.test(t)) return "treat";
+  if (/\b(bottle|flask)\b/.test(t)) return "bottle";
+  if (/\b(book|novel)\b/.test(t)) return "book";
+  if (/\b(lamp|light)\b/.test(t)) return "light";
+  if (/\b(mouse|keyboard|pad|stand|organizer|organiser)\b/.test(t)) return "desk";
+  if (/\b(game|controller)\b/.test(t)) return "game";
+  if (/\b(running|fitness|gym|training)\b/.test(t)) return "fitness";
+  return "other";
+}
+
+function complementary(a: ProductFind, b: ProductFind) {
+  if (a.id === b.id) return false;
+  const pairings = new Set(["drink:drinkware", "drink:treat", "drink:book", "drinkware:desk", "fitness:bottle", "fitness:treat", "game:treat", "book:light", "book:drink"]);
+  const first = productKind(a), second = productKind(b);
+  return pairings.has(`${first}:${second}`) || pairings.has(`${second}:${first}`);
+}
+
+function pairReason(a: ProductFind, b: ProductFind, moment: Moment) {
+  const kinds = [productKind(a), productKind(b)];
+  if (kinds.includes("drink") && kinds.includes("drinkware")) return moment === "lift"
+    ? "Good coffee for the ritual, with a mug that makes a quiet break feel better."
+    : "Good coffee for the ritual, with a mug that makes it feel like an occasion.";
+  if (kinds.includes("fitness") && kinds.includes("bottle")) return "Something for the activity, plus a bottle to take along.";
+  if (kinds.includes("book") && kinds.includes("light")) return "A story and the light for a quiet hour with it.";
+  if (kinds.includes("game") && kinds.includes("treat")) return "A game and a little snack for the same relaxed evening.";
+  return "Two different pleasures that make this moment feel more complete together.";
 }
 
 export function Screen() {
-  const params = useSearchParams();
-  const sessionId = params.get("session_id");
-  const [pot, setPot] = useState<Pot | null>(null);
-  const [bundle, setBundle] = useState<Bundle | null>(null);
-  const [baseline, setBaseline] = useState<number | null>(null);
+  const [profile, setProfile] = useState<Profile>(STARTER);
+  const [ready, setReady] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [moment, setMoment] = useState<Moment>("lift");
+  const [note, setNote] = useState("");
+  const [result, setResult] = useState<FindResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [approved, setApproved] = useState(false);
+  const [checkingId, setCheckingId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState<"choose" | "pay" | null>(null);
-  const [waiting, setWaiting] = useState(false);
-  const [settled, setSettled] = useState(false);
+  const [promptNudge, setPromptNudge] = useState(false);
+  const [storage, setStorage] = useState<"browser" | "supabase">("browser");
 
   useEffect(() => {
-    let cancelled = false;
-    let timer = 0;
-    const started = Date.now();
-    const stored = sessionId ? Number(sessionStorage.getItem(BEFORE_KEY)) : NaN;
-    const before = Number.isFinite(stored) ? stored : null;
-    setBaseline(before);
-
-    async function tick() {
+    void (async () => {
+      let saved: Profile | null = null;
       try {
-        const next = await loadPot();
-        if (cancelled) return;
-        setPot(next);
-        setError("");
-        if (!sessionId || before === null) {
-          setWaiting(false);
-          setSettled(true);
-          return;
+        const raw = localStorage.getItem(PROFILE_KEY);
+        if (raw) saved = { ...STARTER, ...JSON.parse(raw) } as Profile;
+      } catch { /* A new profile can be created. */ }
+      try {
+        const response = await fetch("/api/profile", { cache: "no-store" });
+        if (response.ok) {
+          const body = await response.json() as { profile: Profile | null; storage: "browser" | "supabase" };
+          setStorage(body.storage);
+          if (body.profile) {
+            saved = { ...STARTER, ...body.profile };
+            localStorage.setItem(PROFILE_KEY, JSON.stringify(saved));
+          } else if (saved && body.storage === "supabase") {
+            void syncProfile(saved);
+          }
         }
-        const landed = next.balance_pence < before;
-        const timedOut = Date.now() - started > 20000;
-        setWaiting(!landed && !timedOut);
-        setSettled(landed || timedOut);
-        if (!landed && !timedOut) timer = window.setTimeout(tick, 1500);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "The pot did not load.");
-        }
-      }
-    }
+      } catch { /* Browser memory remains available. */ }
+      if (saved) {
+        setProfile(saved);
+        if (saved.reminder && timePassed(saved.reminder) && localStorage.getItem(NUDGE_KEY) !== today()) setPromptNudge(true);
+      } else setEditing(true);
+      setReady(true);
+    })();
+  }, []);
 
-    void tick();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
+  async function syncProfile(next: Profile) {
+    try {
+      const response = await fetch("/api/profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) });
+      if (response.ok) setStorage("supabase");
+      else setStorage("browser");
+    } catch { setStorage("browser"); }
+  }
+
+  const top = result?.finds[0];
+  const pair = useMemo(() => top && result
+    ? result.finds.slice(1).find((item) => top.pricePence + item.pricePence <= profile.budgetPence - Math.max(800, Math.round(profile.budgetPence * 0.1)) && complementary(top, item)) || null
+    : null, [top, result, profile.budgetPence]);
+  const chosen = top ? [top, ...(pair ? [pair] : [])] : [];
+  const total = chosen.reduce((sum, item) => sum + item.pricePence, 0);
+
+  function saveProfile() {
+    const cleaned = { ...profile, name: profile.name.trim().slice(0, 40), interests: profile.interests.trim().slice(0, 180), avoid: profile.avoid.trim().slice(0, 120) };
+    if (!cleaned.name || cleaned.interests.length < 3 || cleaned.budgetPence < 500) { setError("Tell Sam your name, an interest, and a limit of at least £5."); return; }
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(cleaned));
+    setProfile(cleaned); setEditing(false); setError("");
+    void syncProfile(cleaned);
+  }
+
+  function toggleInterest(interest: string) {
+    const current = profile.interests.split(",").map((part) => part.trim()).filter(Boolean);
+    const next = current.some((part) => part.toLowerCase() === interest.toLowerCase())
+      ? current.filter((part) => part.toLowerCase() !== interest.toLowerCase()) : [...current, interest];
+    setProfile((p) => ({ ...p, interests: next.join(", ") }));
+  }
+
+  async function choose(nextMoment: Moment, refinement = "", excluded?: string[]) {
+    setMoment(nextMoment); setResult(null); setApproved(false); setLoading(true); setError(""); setPromptNudge(false);
+    const occasion = note.trim() || (nextMoment === "lift" ? "I could use a small lift today" : "Something good happened and I want to celebrate");
+    const brief: ShoppingBrief = {
+      forWhom: profile.name, interests: profile.interests, occasion, budgetPence: profile.budgetPence,
+      country: "GB", avoid: profile.avoid, refinement, momentType: nextMoment, previousIds: excluded || profile.seenIds,
     };
-  }, [sessionId]);
-
-  async function onChoose() {
-    setBusy("choose");
-    setError("");
     try {
-      setBundle(await choose());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "The bot could not choose.");
-    } finally {
-      setBusy(null);
-    }
+      const response = await fetch("/api/find", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(brief), cache: "no-store" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Sam could not finish looking.");
+      setResult(body as FindResponse);
+      if (!(body as FindResponse).finds.length) setError("Sam couldn't verify a good choice within your limit just now. Try a different interest or raise the limit in your profile.");
+      localStorage.setItem(NUDGE_KEY, today());
+    } catch (err) { setError(err instanceof Error ? err.message : "Sam could not finish looking."); }
+    finally { setLoading(false); }
   }
 
-  async function onPay() {
-    if (!pot || !bundle || bundle.items.length === 0) return;
-    setBusy("pay");
-    setError("");
-    try {
-      sessionStorage.setItem(BEFORE_KEY, String(pot.balance_pence));
-      const checkout = await pay(bundle.items.map((item) => ({ sku: item.sku, qty: 1 })));
-      window.location.assign(checkout.url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Checkout failed.");
-      setBusy(null);
-    }
+  function remember(kind: "yes" | "no") {
+    if (!top) return;
+    const choiceIds = chosen.map((item) => item.id);
+    const seenIds = [...new Set([...profile.seenIds, ...choiceIds])].slice(-20);
+    const liked = kind === "yes" ? [...new Set([...profile.liked, ...choiceIds])].slice(-20) : profile.liked;
+    const next = { ...profile, seenIds, liked };
+    setProfile(next); localStorage.setItem(PROFILE_KEY, JSON.stringify(next));
+    void syncProfile(next);
+    if (kind === "no") void choose(moment, "Something surprising", seenIds);
   }
 
-  const spent =
-    baseline !== null && pot && pot.balance_pence < baseline ? baseline - pot.balance_pence : null;
-  const capWidth =
-    pot && pot.balance_pence > 0 ? Math.min(100, (pot.cap_pence / pot.balance_pence) * 100) : 0;
+  async function goToSeller(item: ProductFind) {
+    if (!approved) return;
+    setCheckingId(item.id); setError("");
+    try {
+      const response = await fetch("/api/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, variantId: item.variantId, budgetPence: profile.budgetPence, avoid: profile.avoid }), cache: "no-store" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Sam could not recheck that product.");
+      window.location.assign(body.checkoutUrl);
+    } catch (err) { setError(err instanceof Error ? err.message : "Could not open checkout."); setCheckingId(null); }
+  }
 
-  return (
-    <main className={styles.desk}>
-      <aside className={styles.rail} aria-label="Pot">
-        <p className={styles.railKicker}>Pot</p>
-        <p className={styles.balance}>{pot ? pounds(pot.balance_pence) : "—"}</p>
-        {pot ? (
-          <>
-            <div className={styles.track} aria-hidden="true">
-              <span style={{ width: `${capWidth}%` }} />
-            </div>
-            <p className={styles.cap}>Cap {pounds(pot.cap_pence)}</p>
-            <ul className={styles.facts}>
-              <li>Banned {pot.bans.length ? pot.bans.join(", ") : "nothing"}</li>
-              <li>Sizes {pot.sizes.length ? pot.sizes.join(", ") : "any"}</li>
-              <li>
-                Already buys{" "}
-                {pot.past_orders.length
-                  ? pot.past_orders.map((order) => order.name).join(", ")
-                  : "nothing yet"}
-              </li>
-            </ul>
-          </>
-        ) : (
-          <p className={styles.cap}>Opening the pot</p>
-        )}
-      </aside>
+  if (!ready) return <main className={styles.opening}>Opening Sam…</main>;
+  return <main className={styles.site}>
+    <header className={styles.header}>
+      <a href="/" className={styles.brand}><span className={styles.brandMark}>✳</span> good find<span className={styles.brandPeriod}>.</span></a>
+      <div className={styles.headerRight}><span className={styles.liveDot} /> Sam, your thoughtful companion <button type="button" onClick={() => setEditing(true)}>Your profile</button></div>
+    </header>
 
-      <section className={styles.thread} aria-live="polite">
-        <header className={styles.bar}>
-          <span className={styles.avatar} aria-hidden="true">
-            S
-          </span>
-          <div>
-            <p className={styles.name}>Sam</p>
-            <p className={styles.status}>
-              {bundle?.sent ? "On your phone" : "Messages"}
-            </p>
-          </div>
-        </header>
-
-        <div className={styles.scroll}>
-          {sessionId ? (
-            <After
-              waiting={waiting || !settled}
-              balance={pot ? pounds(pot.balance_pence) : null}
-              spent={spent !== null ? pounds(spent) : null}
-            />
-          ) : bundle || busy === "choose" ? (
-            <div className={styles.conversation}>
-              <p className={`${styles.bubble} ${styles.out}`}>Pick something small.</p>
-              {bundle ? (
-                <BundleThread bundle={bundle} pot={pot} busy={busy === "pay"} onPay={onPay} />
-              ) : (
-                <p className={styles.typing}>Sam is choosing</p>
-              )}
-            </div>
-          ) : (
-            <p className={styles.empty}>Sam has not sent anything yet.</p>
-          )}
-          {error ? <p className={styles.error}>{error}</p> : null}
-        </div>
-
-        {!sessionId && !bundle ? (
-          <form
-            className={styles.composer}
-            onSubmit={(event) => {
-              event.preventDefault();
-              void onChoose();
-            }}
-          >
-            <p>Pick something small.</p>
-            <button className={styles.send} type="submit" disabled={!pot || busy !== null} aria-label="Choose something small">
-              {busy === "choose" ? "…" : "↑"}
-            </button>
-          </form>
-        ) : null}
+    {editing ? <div className={styles.introGrid}>
+      <section className={styles.hero}>
+        <p className={styles.eyebrow}>Meet Sam · a companion with good taste</p>
+        <h1>Someone in<br />your <em>corner.</em></h1>
+        <p className={styles.heroCopy}>For the days you need a lift, and the ones worth celebrating. Sam remembers what you like, finds real things you can buy, and chooses for you.</p>
+        <div className={styles.heroProof}><div><strong>01</strong><span>Tell Sam what matters once</span></div><div><strong>02</strong><span>Share the moment</span></div><div><strong>03</strong><span>Approve the choice</span></div></div>
+        <p className={styles.heroFoot}>A little care, at the right time.</p>
       </section>
-    </main>
-  );
-}
-
-function BundleThread({
-  bundle,
-  pot,
-  busy,
-  onPay,
-}: {
-  bundle: Bundle;
-  pot: Pot | null;
-  busy: boolean;
-  onPay: () => void;
-}) {
-  if (bundle.items.length === 0) {
-    return <p className={`${styles.bubble} ${styles.in}`}>{bundle.occasion}</p>;
-  }
-
-  const memory = pot?.past_orders.map((order) => order.name).join(" and ");
-
-  return (
-    <div className={styles.stack}>
-      <article className={styles.card}>
-        <p className={styles.from}>From Sam</p>
-        {bundle.evidence ? <p className={styles.evidence}>{bundle.evidence}</p> : null}
-        <h1 className={styles.hand}>{bundle.occasion}</h1>
-        {memory ? <p className={styles.memory}>You already buy {memory}.</p> : null}
-      </article>
-
-      {bundle.left_out.map((item) => (
-        <article key={item.sku} className={styles.draft}>
-          <p className={styles.draftLabel}>Almost</p>
-          <p>{item.why}</p>
-        </article>
-      ))}
-
-      <div className={`${styles.bubble} ${styles.in} ${styles.products}`}>
-        {bundle.items.map((item) => (
-          <div key={item.sku} className={styles.product}>
-            <span className={styles.productCopy}>
-              <strong>{item.name}</strong>
-              <em>{item.why}</em>
-            </span>
-            <span className={styles.price}>{pounds(item.price_pence)}</span>
+      <section className={styles.briefPanel}>
+        <p className={styles.eyebrow}>One time · about 30 seconds</p><h2>Let Sam get to know you.</h2>
+        <p className={styles.muted}>A few details make the next moment feel personal.</p>
+        <form onSubmit={(event) => { event.preventDefault(); saveProfile(); }}>
+          <label className={styles.field}><span>What should Sam call you?</span><input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} placeholder="Your first name" required /></label>
+          <div className={styles.field}><label htmlFor="interests">What are you into?</label><input id="interests" value={profile.interests} onChange={(e) => setProfile({ ...profile, interests: e.target.value })} placeholder="Coffee, gaming, running…" required /><div className={styles.chips}>{INTERESTS.map((interest) => <button key={interest} type="button" className={profile.interests.toLowerCase().split(",").map((part) => part.trim()).includes(interest.toLowerCase()) ? styles.chipActive : styles.chip} onClick={() => toggleInterest(interest)}>{interest}</button>)}</div></div>
+          <div className={styles.twoFields}>
+            <label className={styles.field}><span>Maximum for one moment</span><span className={styles.moneyInput}><span>£</span><input type="number" min="5" max="2000" value={profile.budgetPence / 100} onChange={(e) => setProfile({ ...profile, budgetPence: Math.round(Number(e.target.value) * 100) })} required /></span></label>
+            <label className={styles.field}><span>Anything to avoid?</span><input value={profile.avoid} onChange={(e) => setProfile({ ...profile, avoid: e.target.value })} placeholder="Optional" /></label>
           </div>
-        ))}
-        <div className={styles.receipt}>
-          <span>Bundle {pounds(bundle.total_pence)}</span>
-          <span>Still {pounds(bundle.balance_after_pence)}</span>
-        </div>
-        <button className={styles.pay} type="button" onClick={onPay} disabled={busy}>
-          {busy ? "Opening checkout" : `Pay ${pounds(bundle.total_pence)}`}
-        </button>
-      </div>
+          <label className={styles.field}><span>A gentle daily nudge? <small>Optional</small></span><input type="time" value={profile.reminder} onChange={(e) => setProfile({ ...profile, reminder: e.target.value })} /><small>Sam will greet you when you next open this page after that time.</small></label>
+          <button className={styles.primary} type="submit">Save what Sam remembers <span>↗</span></button>
+          <p className={styles.formNote}>Saved in this browser{storage === "supabase" ? " and Supabase" : ""}. Every purchase still needs your approval.</p>
+        </form>
+      </section>
+    </div> : null}
 
-      <p className={styles.delivered}>
-        {bundle.sent ? "Delivered to your phone" : "Delivered"}
-      </p>
-    </div>
-  );
-}
+    {!editing && !loading && !result ? <div className={styles.homeGrid}>
+      <section className={styles.homeHero}>
+        <p className={styles.eyebrow}>A note from Sam</p><h1>Hey, {profile.name}<span className={styles.brandPeriod}>.</span><br /><em>I&apos;m here.</em></h1>
+        <p>You don&apos;t need to know what to buy. Tell me where today has landed, and I&apos;ll choose something thoughtful from real shops.</p>
+        <button className={styles.demoButton} type="button" onClick={() => { setPromptNudge(true); document.getElementById("moment-panel")?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>▶ Demo: Sam checks in</button>
+        <div className={styles.memory}><span>What I remember</span><strong>{profile.interests}</strong><span>Up to {pounds(profile.budgetPence)} · UK shops · {storage === "supabase" ? "saved with Supabase" : "saved in this browser"}</span></div>
+      </section>
+      <section className={styles.momentPanel} id="moment-panel">
+        {promptNudge ? <div className={styles.nudge} aria-live="polite"><span>✳</span><p>Hey {profile.name}, just checking in. Do you need a lift, or is there something to celebrate? I can choose something for you.</p></div> : null}
+        <p className={styles.eyebrow}>What kind of day is it?</p><h2>A small moment can matter.</h2>
+        <button className={styles.momentButton} type="button" onClick={() => void choose("lift")}><span className={styles.momentIcon}>☁</span><span><strong>I need a lift</strong><small>Something comforting, useful, or quietly fun</small></span><b>↗</b></button>
+        <button className={styles.momentButton} type="button" onClick={() => void choose("celebrate")}><span className={styles.momentIcon}>✷</span><span><strong>I want to celebrate</strong><small>A little reward for a good thing</small></span><b>↗</b></button>
+        <label className={styles.noteField}><span>Want to tell me more? <small>Optional</small></span><textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 180))} placeholder="It was a long week… or I finally got that job!" rows={3} /></label>
+        <p className={styles.momentFoot}>Sam checks live stock and price. You decide whether to buy.</p>
+      </section>
+    </div> : null}
 
-function After({
-  waiting,
-  balance,
-  spent,
-}: {
-  waiting: boolean;
-  balance: string | null;
-  spent: string | null;
-}) {
-  if (spent === null) {
-    return (
-      <p className={`${styles.bubble} ${styles.in}`}>
-        {waiting ? "Waiting for the payment to land." : "The payment is not in the pot yet."}{" "}
-        {balance ? `${balance} is still there.` : ""}
-      </p>
-    );
-  }
+    {loading ? <section className={styles.searching} aria-live="polite"><div className={styles.spinner} /><p className={styles.eyebrow}>Sam is on it</p><h1>Finding your kind of thing<span className={styles.brandPeriod}>.</span></h1><p>I&apos;m checking live products against what you love and your {pounds(profile.budgetPence)} limit. I&apos;ll bring back a decision, not a pile of links.</p></section> : null}
 
-  return (
-    <div className={styles.stack}>
-      <p className={`${styles.bubble} ${styles.in}`}>
-        {spent} left the pot. {balance} is still set aside.
-      </p>
-      <p className={styles.delivered}>Delivered</p>
-    </div>
-  );
+    {!editing && result ? <div className={styles.results}>
+      <div className={styles.resultsTop}><div><p className={styles.eyebrow}>A note from Sam · {moment === "lift" ? "for a hard day" : "for a good day"}</p><h1>{moment === "lift" ? "A little lift for you" : "This calls for something good"}<span className={styles.brandPeriod}>.</span></h1><p>{note.trim() ? `You told me: “${note.trim()}”` : moment === "lift" ? "Some days deserve an easy win." : "Good moments are worth marking."}</p></div><button type="button" className={styles.editButton} onClick={() => { setResult(null); setApproved(false); }}>Back to Sam ↗</button></div>
+      <div className={styles.evidenceBar}><span><i className={styles.liveDot} /> Checked against live Shopify products</span><span>{result.considered} considered · {result.rejected} ruled out</span><span>Maximum {pounds(profile.budgetPence)}</span></div>
+      {top ? <>
+        <section className={styles.samNote}><span className={styles.avatar}>S</span><div><p className={styles.eyebrow}>Sam chose this for you</p><p>“{moment === "lift" ? `You said you’re into ${profile.interests}. I wanted this to feel like a small bit of care you can actually use.` : `You’re into ${profile.interests}, so I looked for a way to mark this moment that feels like you.`} {pair ? pairReason(top, pair, moment) : "This one stood out."}”</p></div></section>
+        <div className={styles.picks}>{chosen.map((item, index) => <article className={styles.pick} key={item.id}><div className={styles.pickImage}><img src={item.imageUrl} alt={item.imageAlt} /><span>{index === 0 ? "Sam’s pick" : "Pairs with it"}</span></div><div className={styles.pickText}><p className={styles.eyebrow}>{index === 0 ? "01 / THE CHOICE" : "02 / THE PAIR"}</p><h2>{item.title}</h2><p className={styles.merchant}>From {item.merchant}</p><p className={styles.why}>{item.reason}</p><p className={styles.caveat}>{item.tradeoff}</p><div className={styles.priceLine}><strong>{pounds(item.pricePence)}</strong><a href={item.productUrl} target="_blank" rel="noopener noreferrer">See product details ↗</a></div>{approved ? <button className={styles.primary} type="button" onClick={() => void goToSeller(item)} disabled={checkingId === item.id}>{checkingId === item.id ? "Checking live price…" : `Open ${item.merchant} checkout ↗`}</button> : null}</div></article>)}</div>
+        <section className={styles.decision}><div><p className={styles.eyebrow}>Your decision</p><h2>{pair ? "Two things, one thoughtful moment." : "One considered choice."}</h2><p>{pair ? "These come from their own sellers. Each opens a separate seller checkout after you approve." : "Sam chose this from the available options and checked it against your limit."}</p></div><div className={styles.decisionRight}><div><span>Total before shipping</span><strong>{pounds(total)}</strong></div><div><span>Room left under your limit</span><strong>{pounds(profile.budgetPence - total)}</strong></div>{!approved ? <button className={styles.primary} type="button" onClick={() => { setApproved(true); remember("yes"); }}>I approve Sam&apos;s choice ↗</button> : <p className={styles.approved}>✓ Approved by you. Choose a seller checkout above when you&apos;re ready.</p>}<button className={styles.textButton} type="button" onClick={() => remember("no")}>Not for me — choose again</button></div></section>
+        <details className={styles.process}><summary>How Sam made the choice</summary><p>Sam searched Shopify&apos;s live catalog for {result.queries.map((query) => `“${query}”`).join(" and ")}, checked availability, GBP price, image and seller link, then ranked matches against your interests, moment and limit. {result.model === "gateway" ? "A language model helped interpret the fit." : "A transparent rule set chose the best match."} {result.leftOut ? `One ruled out: ${result.leftOut.title} — ${result.leftOut.why.toLowerCase()}.` : ""}</p>{result.signals.length ? <div className={styles.sources}>{result.signals.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer">{source.title} ↗</a>)}</div> : null}</details>
+      </> : null}
+      <p className={styles.disclaimer}>Seller prices, shipping and availability may change at checkout. Sam rechecks the product before opening the seller&apos;s page. Approval here never charges you.</p>
+    </div> : null}
+    {error ? <div className={styles.error} role="alert">{error}</div> : null}
+    <footer className={styles.footer}><span>good find<span className={styles.brandPeriod}>.</span></span><span>Sam remembers. Sam chooses. You decide.</span></footer>
+  </main>;
 }

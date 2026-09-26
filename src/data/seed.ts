@@ -18,11 +18,9 @@ export const seedPot: Pot = {
 export const seedCatalog: Sku[] = [
   { sku: "NOODLE", name: "midnight noodles", price_pence: 240, tags: ["treat"] },
   { sku: "CHOC", name: "salted chocolate", price_pence: 450, tags: ["treat"] },
-  { sku: "TULIP", name: "five tulips", price_pence: 700, tags: ["flowers"] },
   { sku: "COFFEE", name: "home coffee", price_pence: 620, tags: ["treat"] },
   { sku: "CANDLE", name: "kitchen candle", price_pence: 800, tags: ["home"] },
   { sku: "SOCKS", name: "thick socks", price_pence: 900, tags: ["clothes", "size:M"] },
   { sku: "WINE", name: "red wine", price_pence: 1100, tags: ["alcohol"] },
-  { sku: "RANUN", name: "ranunculus", price_pence: 1800, tags: ["flowers"] },
   { sku: "JUMPER", name: "heavy jumper", price_pence: 3200, tags: ["clothes", "size:M"] },
 ];

@@ -1,33 +1,10 @@
-# Pot
+# Good Find
 
-A bot spends a little of a household pot. The browser only draws JSON. Stripe, the catalog, and the bot stay on the server.
+Sam is a shopping companion for the moments when someone needs a lift or wants to celebrate. They introduce themselves once, then Sam searches current products and chooses one thing or a natural pair. Sam shows the reason, source, current price and limit check, then waits for approval before opening a seller checkout.
 
-## Who edits what
+The [hackathon plan](docs/hackathon-plan.md) covers the workflow and remaining work. The [Grok Bot guide](docs/grok-bot-setup.md) contains the dedicated Bot description and verified manual run.
 
-| Side | Who | Folders |
-|---|---|---|
-| Backend | Backend owner | `src/`, `app/api/`, `supabase/` |
-| Frontend | ALI | `app/(screen)/` |
-| Contract | Both, then frozen | `src/contract/types.ts` |
-
-Work on `main`. Stay out of the other side’s folders. A field change happens in `src/contract/types.ts` and both callers, in one commit.
-
-ALI can build the page with fixtures: set `USE_FIXTURES` to `true` in `app/(screen)/data.ts`. The backend can hit the routes with curl before the page exists.
-
-## Layers
-
-Each layer is a folder. They call downward only.
-
-| Layer | Edit | Job |
-|---|---|---|
-| Data | `src/data/seed.ts`, or the Supabase tables | Pot, catalog, ledger |
-| Rules | `src/pot/rules.ts` | What is left, banned, and under the cap |
-| Bot | `src/bot/prompt.ts` | Which SKUs, and why one was left out |
-| Checkout | `src/checkout/session.ts` | Re-price, authorize again, open Stripe |
-
-`app/api/*` is thin. Put behaviour in the layer, not in the route.
-
-## Run
+## Run locally
 
 ```bash
 npm install
@@ -35,29 +12,20 @@ cp .env.example .env.local
 npm run dev
 ```
 
-With no keys, the page uses the seed pot (£40, £15 cap) and a handwritten bundle. Pay needs `STRIPE_SECRET_KEY`. The balance only sticks on Vercel once Supabase is set, because a serverless process forgets the in-memory pot.
+Open [localhost:3000](http://localhost:3000). Answer the short one-time introduction, press **Demo: Sam checks in**, then try both moments. The browser keeps profile memory even without a database. With `SUPABASE_URL` and a server-only `SUPABASE_SECRET_KEY`, the app also saves memory to the `companion_profiles` table defined in [supabase/companion_profiles.sql](supabase/companion_profiles.sql). It uses a private browser cookie; account login for cross-device sync is not yet built.
 
-```bash
-curl http://localhost:3000/api/pot
-curl -X POST http://localhost:3000/api/decide
-```
+Shopify Global Catalog powers live product search and seller checkout links without an app API key. `TAVILY_API_KEY` adds wider research context. `AI_GATEWAY_API_KEY` enables optional Vercel AI Gateway reasoning; without it, Sam uses transparent ranking rules. The owner can separately run the Sam Grok Bot and its saved Thoughtful moment skill through paid Cursor access. Grok Bot is not a callable model API for the public website.
 
-## Vercel
+## Payments
 
-Import the repo. Set the same variables as `.env.example`. `APP_URL` can stay empty; the checkout return URL uses the request host.
+Every choice requires explicit approval. The site rechecks the selected Shopify variant before opening the seller checkout. The seller handles the actual payment. A pair may require two seller checkouts. Approval inside Good Find does not charge anyone.
 
-Point the Stripe webhook at `https://<your-domain>/api/webhooks/stripe` for `checkout.session.completed`. Locally:
+The repo still contains an older Stripe test-mode flow. It is separate from purchases of live Shopify products. The Stripe test balance is simulated merchant proceeds, not the person's Good Find spending limit.
 
-```bash
-stripe listen --forward-to localhost:3000/api/webhooks/stripe
-```
+## Current limits
 
-Demo card: `4242 4242 4242 4242`, any future expiry, any CVC. The pot moves only when that webhook lands.
-
-## Supabase
-
-Run `supabase/schema.sql`, then `supabase/seed.sql`, in the SQL editor. Put the project URL and service role key in `.env.local`. Re-running the seed puts the pot back to £40.
-
-## Done when
-
-One pass on the page: balance before, a bundle with a reason and one SKU left out, a Stripe test payment, balance after matching the charge.
+- The on-stage check-in is triggered by the demo button. An optional in-site nudge appears when the person next opens the page after their chosen time. No Grok Bot routine is scheduled.
+- Profile data is saved in this browser and, when configured, in Supabase under a private cookie. It is not yet shared between browsers or devices.
+- Product images and catalog results are fetched live and are not saved in Supabase.
+- Shipping and tax are confirmed by each merchant at checkout.
+- The optional Vercel AI Gateway key is not configured; the site uses transparent ranking rules. The Grok Bot is a separate manual demo surface.
