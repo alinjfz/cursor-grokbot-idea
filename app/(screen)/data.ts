@@ -32,13 +32,15 @@ export const fixtureBundle: Bundle = {
   ],
   total_pence: 1150,
   balance_after_pence: 2850,
-  occasion: "a tuesday evening",
-    left_out: [
-      {
-        sku: "RANUN",
-        why: "Ranunculus is prettier than the tulips, and it is over the cap.",
-      },
-    ],
+  occasion: "For a Tuesday evening.",
+  evidence: "Rain in E1 until 6.",
+  sent: true,
+  left_out: [
+    {
+      sku: "RANUN",
+      why: "Ranunculus is prettier than the tulips, and it is over the cap.",
+    },
+  ],
 };
 
 async function readJson<T>(res: Response): Promise<T> {

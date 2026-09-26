@@ -1,4 +1,4 @@
-import { Fraunces, IBM_Plex_Mono } from "next/font/google";
+import { Caveat, Fraunces, Karla } from "next/font/google";
 import type { Metadata } from "next";
 import "./globals.css";
 
@@ -7,10 +7,14 @@ const display = Fraunces({
   variable: "--font-display",
 });
 
-const mono = IBM_Plex_Mono({
+const script = Caveat({
   subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-mono",
+  variable: "--font-script",
+});
+
+const sans = Karla({
+  subsets: ["latin"],
+  variable: "--font-sans",
 });
 
 export const metadata: Metadata = {
@@ -20,7 +24,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${mono.variable}`}>
+    <html lang="en" className={`${display.variable} ${script.variable} ${sans.variable}`}>
       <body>{children}</body>
     </html>
   );

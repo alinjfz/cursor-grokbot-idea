@@ -1,12 +1,13 @@
 :root {
   color-scheme: light;
-  --paper: #e4dccb;
-  --paper-2: #efe8da;
-  --ink: #1c1712;
-  --faded: #74695c;
-  --line: #c9beab;
-  --wax: #8e2f24;
-  --moss: #2f3b2c;
+  --ink: #1c1c1e;
+  --faded: #8e8e93;
+  --line: #e5e5ea;
+  --blue: #007aff;
+  --incoming: #e9e9eb;
+  --thread: #ffffff;
+  --rail: #f2f2f7;
+  --green: #34c759;
 }
 
 * {
@@ -20,12 +21,9 @@ body {
 }
 
 body {
-  background:
-    radial-gradient(ellipse at 0% 0%, #f4efe4 0%, transparent 46%),
-    radial-gradient(ellipse at 100% 120%, #d3c6b0 0%, transparent 42%),
-    var(--paper);
+  background: #d1d1d6;
   color: var(--ink);
-  font-family: var(--font-display), "Iowan Old Style", Palatino, serif;
+  font-family: var(--font-sans), "Avenir Next", "Segoe UI", sans-serif;
 }
 
 button,
@@ -34,14 +32,14 @@ input {
 }
 
 ::selection {
-  background: #e7c3b4;
+  background: #b3d7ff;
 }
 
 .opening {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  font-family: var(--font-mono), ui-monospace, monospace;
+  font-family: var(--font-sans), "Avenir Next", sans-serif;
   font-size: 12px;
   letter-spacing: 0.16em;
   text-transform: uppercase;

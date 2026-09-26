@@ -30,6 +30,9 @@ export type Bundle = {
   balance_after_pence: number;
   occasion: string;
   left_out: { sku: string; why: string }[];
+  // Optional until the bot fills them. The screen hides each beat when absent.
+  evidence?: string;
+  sent?: boolean;
 };
 
 export type Checkout = {
