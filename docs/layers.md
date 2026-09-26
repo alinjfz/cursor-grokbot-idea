@@ -1,39 +1,75 @@
-# Layer split
+# Frontend and backend
 
-You and ALI build the same demo without editing the same files. Source of the product: `docs/gist.md`. Hackathon brief: `docs/info.md`.
+The demo from `docs/gist.md`: money goes into a pot, a bot picks a small bundle from a closed catalog, the screen shows the price, the money left, and why those SKUs were grouped. Pay happens in Stripe sandbox.
 
-## The demo
+The browser never holds a Stripe key, a catalog price, or the bot. It only draws JSON the server sends back.
 
-Someone living alone puts money in a pot. A bot may spend it on a small bundle that would cheer him up: a treat, a shirt, flowers. The screen shows the bundle, the price, the money left, and why those SKUs were grouped (and why a nicer one was left out). Checkout is a real Stripe sandbox session.
+```
+Browser                         Server
+──────                          ──────
+screen                          API routes
+  pot balance                     /api/pot        pot + rules
+  bundle + reasons                /api/catalog    SKUs and prices
+  left-out line                   /api/decide     bot
+  Pay button                      /api/checkout   Stripe sandbox
+       │                          /api/webhooks/stripe
+       │  JSON only                      │
+       └────────────────────────────────►│
+                                         ├── Supabase  pot, ledger, catalog
+                                         ├── Grok      chooses the bundle
+                                         └── Stripe    hosted test checkout
+```
 
-10-second read: money in, bot chooses, checkout out.
+You take the backend. ALI takes the frontend. That is the whole file split.
 
-## Who owns what
+| Side | Owner | Folders |
+|---|---|---|
+| Backend | You | `src/`, `app/api/`, `supabase/` |
+| Frontend | ALI | `app/(screen)/` |
+| Contract | Both, then frozen | `src/contract/types.ts` |
 
-| Layer | Owner | Folder | Job |
-|---|---|---|---|
-| Contract | Both, then frozen | `src/contract/` | Types both sides share |
-| Pot | You | `src/pot/`, `app/api/pot/`, `supabase/` | Balance, rules, bans, ledger |
-| Catalog | You | `src/catalog/`, `app/api/catalog/` | Closed list of SKUs and prices |
-| Checkout | You | `src/checkout/`, `app/api/checkout/`, `app/api/webhooks/stripe/` | Stripe sandbox session and webhook |
-| Bot | ALI | `src/bot/`, `app/api/decide/` | Pick a bundle inside the rules |
-| Screen | ALI | `app/(screen)/` | Pot, bundle, reasons, pay button |
+## Backend
 
-Swap the names if you want. Do not swap the folders. Checkout stays with the pot, because the charge and the balance are one story. The bot stays with the screen, because the decision and the reason are one story.
+Four layers. Each one is a folder. They call downward only.
 
-## What each layer must not do
+**1. Data** — `supabase/`
 
-- The bot does not set prices, write the ledger, or call Stripe.
-- The screen does not import the Stripe SDK. It asks checkout for a URL.
-- Checkout does not invent SKUs. Line items come from the catalog price.
-- The pot does not choose products.
-- Nobody edits a folder they do not own.
+One pot: balance, cap, bans, allow-list, sizes, past orders. One catalog: SKU, name, price in pence, tags. One ledger row per successful payment: Stripe session id, SKUs, amount, time. Seed this before the demo (£40 pot, £15 cap, a handful of SKUs). The bot cannot add a product that is not in this table.
+
+**2. Rules** — `src/pot/`
+
+Reads the pot. Answers: what is left, what is banned, what the cap is. Refuses a charge that would pass the balance or the cap. This is the authorization. It is checked again at checkout, not only when the bot decides.
+
+**3. Bot** — `src/bot/`, `app/api/decide/`
+
+Reads the pot and the catalog. Returns a few SKUs for one occasion under the cap. Each SKU has a reason. One prettier SKU is named in `left_out` with why it was dropped. If nothing legal fits, it returns no items and a reason. It does not set prices, write the ledger, or call Stripe.
+
+**4. Checkout** — `src/checkout/`, `app/api/checkout/`, `app/api/webhooks/stripe/`
+
+`POST /api/checkout` takes SKUs, re-prices them from the catalog, runs the rules, and opens a Stripe Checkout Session in test mode. The response is a URL. The webhook `checkout.session.completed` is the only thing that subtracts from the pot.
+
+Stripe stays on the server:
+
+- Secret key `sk_test_...` in `.env.local`, never committed, never sent to the browser.
+- Hosted Checkout, so the publishable key is unused. The judge pays on Stripe’s page.
+- Success URL comes back to the screen with `?session_id=`. Cancel leaves the pot as it was.
+- Demo card: `4242 4242 4242 4242`, any future expiry, any CVC.
+- Webhook secret `whsec_...` from `stripe listen`. Until that event lands, the pot has not moved.
+
+## Frontend
+
+One page, `app/(screen)/`. No Stripe SDK. No business rules. Four states, in order:
+
+1. **Pot.** Balance and cap, loaded from `GET /api/pot`.
+2. **Choice.** A Choose button calls `POST /api/decide`. Show each SKU, its price, its reason, the total, the balance after, and the left-out line.
+3. **Pay.** A Pay button calls `POST /api/checkout` and sends the browser to the returned `url`.
+4. **After.** On the way back from Stripe, show the new balance from `GET /api/pot`. If the webhook has not landed yet, show waiting, not spent.
+
+Empty decide (no legal bundle) stays on the page with the reason. A `409` from checkout stays on the page with the error. The pot does not change.
 
 ## Contract
 
-Write this once, together, before either of you builds. After that, only add fields. Do not rename fields that the other person already calls.
-
-`src/contract/types.ts` is the only shared code file.
+Freeze `src/contract/types.ts` before building either side. Money is integer pence.
 
 ```ts
 type Sku = {
@@ -49,6 +85,7 @@ type Pot = {
   bans: string[];
   allow: string[];
   sizes: string[];
+  past_orders: { sku: string; name: string }[];
 };
 
 type BundleItem = {
@@ -72,72 +109,21 @@ type Checkout = {
 };
 ```
 
-Money is integer pence. No floats.
+| Call | Who | Body | Returns |
+|---|---|---|---|
+| `GET /api/pot` | Frontend | — | `Pot` |
+| `GET /api/catalog` | Bot, on the server | — | `Sku[]` |
+| `POST /api/decide` | Frontend | — | `Bundle` |
+| `POST /api/checkout` | Frontend | `{ items: { sku: string, qty: number }[] }` | `Checkout` or `409` |
 
-## How the layers talk
+The frontend does not call `/api/catalog` or the webhook. The bot calls catalog inside the server.
 
-ALI can stub your routes. You can stub his decide route. The shapes below are the seam.
+## Working apart
 
-**You expose**
+ALI can build the page against hardcoded JSON in the shapes above. You can build the routes and hit them with curl before the page exists. Swap the JSON for the live routes when both sides match the contract.
 
-`GET /api/pot` → `Pot` plus past orders the bot may read: `{ sku, name }[]`.
-
-`GET /api/catalog` → `Sku[]`. Only products you stock. The bot may not add one.
-
-`POST /api/checkout` body `{ items: { sku: string, qty: number }[] }` → `Checkout`.
-
-You re-price every SKU from the catalog. If the total is over `balance_pence` or `cap_pence`, or a SKU is banned or missing, return `409` and do not open Stripe.
-
-`POST /api/webhooks/stripe` is yours alone. On `checkout.session.completed` in test mode, subtract the total from the pot and write one ledger row: session id, SKUs, amount, time.
-
-**ALI exposes**
-
-`POST /api/decide` → `Bundle`.
-
-He reads pot and catalog. He returns a few SKUs that fit one occasion and the cap. Each item has a `why`. `left_out` names one prettier SKU he refused, and why. If nothing legal fits, he returns an empty `items` array and a reason, and he does not call checkout.
-
-**ALI’s screen**
-
-One page. Balance and cap at the top. Button: choose. Then the bundle, the total, the balance after, the reasons, the left-out line. Button: pay. That button calls `POST /api/checkout` and sends the browser to `url`.
-
-## Stripe sandbox
-
-Test mode only. Keys live in `.env.local`, which stays untracked.
-
-- Secret key: `sk_test_...` — server only, inside `src/checkout/`.
-- Publishable key is unused if you use Stripe Checkout (hosted page). Prefer that. The judge pays on Stripe, then comes back.
-- Success URL returns to the screen with `?session_id=`.
-- Cancel URL returns to the same screen with the pot unchanged.
-- Demo card: `4242 4242 4242 4242`, any future expiry, any CVC.
-- A webhook secret `whsec_...` from `stripe listen` confirms the payment before the pot moves. Until the webhook lands, the screen may show “waiting”, not “spent”.
-
-The bot never sees the card and never confirms the charge. The human pays in Stripe. The rules on screen are the authorization: cap, bans, and remaining balance.
-
-## Build order
-
-1. Freeze `src/contract/types.ts`.
-2. You seed three SKUs and a pot with a known balance (example: £40 pot, £15 cap). ALI hard-codes the same JSON behind his stubs.
-3. ALI’s decide route returns one fixed legal bundle and one left-out SKU, still from your seed.
-4. You open a Stripe test Checkout for that bundle.
-5. ALI replaces the fixed bundle with a real choice from pot + catalog.
-6. You replace the stub prices with catalog prices and debit the pot on the webhook.
-
-If step 5 slips, step 4 is still a demo: money in, a bundle with a reason, a Stripe test payment, balance down.
-
-## Conflict rules
-
-- One owner per directory in the table. `git pull` before you start a file, and stay inside your tree.
-- Do not reformat files you do not own.
-- API paths and the field names in the contract are fixed. Change them only in a pair, in one commit, on `src/contract/types.ts` plus both callers.
-- Seed data lives in `supabase/` or `src/catalog/seed.ts` (you). ALI reads it over HTTP, not by importing your seed file.
-- `.env.local` is never committed. ALI does not need the Stripe secret.
+Do not edit the other side’s folders. Change a field name only together, in `src/contract/types.ts` and both callers, in one commit.
 
 ## Done when
 
-A judge can put the test card through once and see all of this on one screen:
-
-- pot balance before
-- a small bundle chosen from the catalog
-- a reason on each SKU and one SKU left out
-- a Stripe sandbox checkout
-- pot balance after, matching the charge
+One pass on the page: balance before, a bundle with a reason and one SKU left out, a Stripe test payment, balance after matching the charge.
