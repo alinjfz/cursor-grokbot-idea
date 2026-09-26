@@ -6,12 +6,12 @@ import styles from "./screen.module.css";
 
 type Profile = {
   name: string; interests: string; avoid: string; budgetPence: number;
-  reminder: string; seenIds: string[]; liked: string[];
+  reminder: string; whatsapp: string; seenIds: string[]; liked: string[];
 };
 type Moment = "lift" | "celebrate";
 const PROFILE_KEY = "sam-companion-profile-v1";
 const NUDGE_KEY = "sam-last-nudge-v1";
-const STARTER: Profile = { name: "", interests: "", avoid: "", budgetPence: 4000, reminder: "", seenIds: [], liked: [] };
+const STARTER: Profile = { name: "", interests: "", avoid: "", budgetPence: 4000, reminder: "", whatsapp: "", seenIds: [], liked: [] };
 const INTERESTS = ["Coffee", "Desk gear", "Fitness", "Gaming", "Food", "Grooming", "Books", "Outdoors", "Tech"];
 const pounds = (pence: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(pence / 100);
 const today = () => new Date().toLocaleDateString("en-CA");
@@ -116,7 +116,7 @@ export function Screen() {
   const total = chosen.reduce((sum, item) => sum + item.pricePence, 0);
 
   function saveProfile() {
-    const cleaned = { ...profile, name: profile.name.trim().slice(0, 40), interests: profile.interests.trim().slice(0, 180), avoid: profile.avoid.trim().slice(0, 120) };
+    const cleaned = { ...profile, name: profile.name.trim().slice(0, 40), interests: profile.interests.trim().slice(0, 180), avoid: profile.avoid.trim().slice(0, 120), whatsapp: profile.whatsapp.trim().slice(0, 20) };
     if (!cleaned.name || cleaned.interests.length < 3 || cleaned.budgetPence < 500) { setError("Tell Sam your name, an interest, and a limit of at least £5."); return; }
     localStorage.setItem(PROFILE_KEY, JSON.stringify(cleaned));
     setProfile(cleaned); setEditing(false); setError("");
@@ -163,7 +163,7 @@ export function Screen() {
     if (!approved) return;
     setCheckingId(item.id); setError("");
     try {
-      const response = await fetch("/api/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, variantId: item.variantId, budgetPence: profile.budgetPence, avoid: profile.avoid }), cache: "no-store" });
+      const response = await fetch("/api/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, variantId: item.variantId, budgetPence: profile.budgetPence, avoid: profile.avoid, whatsapp: profile.whatsapp }), cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Sam could not recheck that product.");
       if (typeof body.url !== "string" || !body.url.startsWith("https://checkout.stripe.com/")) {
@@ -177,7 +177,7 @@ export function Screen() {
   return <main className={styles.site}>
     <header className={styles.header}>
       <a href="/" className={styles.brand}><span className={styles.brandMark}>✳</span> good find<span className={styles.brandPeriod}>.</span></a>
-      <div className={styles.headerRight}><span className={styles.liveDot} /> Sam, your thoughtful companion <button type="button" onClick={() => setEditing(true)}>Your profile</button></div>
+      <div className={styles.headerRight}><span className={styles.liveDot} /> Sam, your thoughtful companion <a href="/orders">Orders</a><button type="button" onClick={() => setEditing(true)}>Your profile</button></div>
     </header>
 
     {editing ? <div className={styles.introGrid}>
@@ -198,6 +198,7 @@ export function Screen() {
             <label className={styles.field}><span>Maximum for one moment</span><span className={styles.moneyInput}><span>£</span><input type="number" min="5" max="2000" value={profile.budgetPence / 100} onChange={(e) => setProfile({ ...profile, budgetPence: Math.round(Number(e.target.value) * 100) })} required /></span></label>
             <label className={styles.field}><span>Anything to avoid?</span><input value={profile.avoid} onChange={(e) => setProfile({ ...profile, avoid: e.target.value })} placeholder="Optional" /></label>
           </div>
+          <label className={styles.field}><span>WhatsApp for receipts <small>Optional</small></span><input value={profile.whatsapp} onChange={(e) => setProfile({ ...profile, whatsapp: e.target.value })} placeholder="07… or +44…" /><small>After you pay, Good Find texts this number a confirmation.</small></label>
           <label className={styles.field}><span>A gentle daily nudge? <small>Optional</small></span><input type="time" value={profile.reminder} onChange={(e) => setProfile({ ...profile, reminder: e.target.value })} /><small>Sam will greet you when you next open this page after that time.</small></label>
           <button className={styles.primary} type="submit">Save what Sam remembers <span>↗</span></button>
           <p className={styles.formNote}>Saved in this browser{storage === "supabase" ? " and Supabase" : ""}. Every purchase still needs your approval.</p>
@@ -233,7 +234,7 @@ export function Screen() {
         <section className={styles.decision}><div><p className={styles.eyebrow}>Your decision</p><h2>{pair ? "Two things, one thoughtful moment." : "One considered choice."}</h2><p>{pair ? "These come from their own sellers. Each one opens a Stripe payment page after you approve." : "Sam chose this from the available options and checked it against your limit. Pay happens on Stripe."}</p></div><div className={styles.decisionRight}><div><span>Total before shipping</span><strong>{pounds(total)}</strong></div><div><span>Room left under your limit</span><strong>{pounds(profile.budgetPence - total)}</strong></div>{!approved ? <button className={styles.primary} type="button" onClick={() => { setApproved(true); remember("yes"); }}>I approve Sam&apos;s choice ↗</button> : <p className={styles.approved}>✓ Approved by you. Pay with Stripe above when you&apos;re ready.</p>}<button className={styles.textButton} type="button" onClick={() => remember("no")}>Not for me — choose again</button></div></section>
         <details className={styles.process}><summary>How Sam made the choice</summary><p>Sam searched Shopify&apos;s live catalog for {result.queries.map((query) => `“${query}”`).join(" and ")}, checked availability, GBP price, image and seller link, then ranked matches against your interests, moment and limit. {result.model === "gateway" ? "A language model helped interpret the fit." : "A transparent rule set chose the best match."} {result.leftOut ? `One ruled out: ${result.leftOut.title} — ${result.leftOut.why.toLowerCase()}.` : ""}</p>{result.signals.length ? <div className={styles.sources}>{result.signals.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer">{source.title} ↗</a>)}</div> : null}</details>
       </> : null}
-      <p className={styles.disclaimer}>Sam rechecks the live price, then opens Stripe for that amount. Approval here never charges you. The product page link is only for details.</p>
+      <p className={styles.disclaimer}>Sam rechecks the live price, then opens Stripe for that amount. Approval here never charges you. After payment, the order appears on Orders and a confirmation is sent to your WhatsApp.</p>
     </div> : null}
     {error ? <div className={styles.error} role="alert">{error}</div> : null}
     <footer className={styles.footer}><span>good find<span className={styles.brandPeriod}>.</span></span><span>Sam remembers. Sam chooses. You decide.</span></footer>

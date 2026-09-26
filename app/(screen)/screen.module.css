@@ -112,7 +112,22 @@
 @media(max-width:420px) { .hero h1 { font-size:55px; } .refineButtons { grid-template-columns:1fr; } .actions { flex-direction:column; } .actions>* { width:100%; justify-content:center; } }
 @media(prefers-reduced-motion:reduce) { .spinner { animation:none; } .primary { transition:none; } }
 .opening { min-height:100vh; display:grid; place-items:center; background:#f7f3eb; color:#586848; font-family:Georgia,serif; font-size:30px; }
-.headerRight button { margin-left:14px; border:0; border-bottom:1px solid #737d69; padding:2px 0; background:transparent; color:#4b5e40; cursor:pointer; font-size:12px; }
+.headerRight a,.headerRight button { margin-left:14px; border:0; border-bottom:1px solid #737d69; padding:2px 0; background:transparent; color:#4b5e40; cursor:pointer; font-size:12px; text-decoration:none; }
+.orders { max-width:980px; margin:auto; padding:56px 5vw 80px; }
+.orders h1 { margin:14px 0 12px; font:450 clamp(52px,6vw,84px)/.98 var(--font-display),serif; letter-spacing:-.06em; }
+.ordersLead { margin:0 0 28px; color:#505449; font-size:18px; line-height:1.5; }
+.orderList { display:flex; flex-direction:column; gap:14px; }
+.orderCard { display:grid; grid-template-columns:1fr auto; gap:18px; padding:22px 24px; background:var(--paper); border:1px solid var(--line); }
+.orderCard h2 { margin:8px 0; font:500 28px/1.15 var(--font-display),serif; letter-spacing:-.04em; }
+.orderMeta { margin:0; color:var(--muted); font-size:13px; }
+.orderAmount { font:500 28px/1 var(--font-display),serif; text-align:right; }
+.orderStatus { margin:8px 0 0; font-size:13px; color:var(--olive); text-align:right; }
+.orderStatusFailed { color:#8a4b32; }
+.emptyOrders { padding:28px 0; color:var(--muted); }
+.receiptForm { display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px; margin:0 0 28px; }
+.receiptForm label { width:100%; font-size:13px; font-weight:700; }
+.receiptForm input { min-height:48px; min-width:220px; padding:10px 13px; border:1px solid #d6d8cf; background:#fff; color:var(--ink); font-size:15px; }
+.receiptForm button { min-height:48px; padding:10px 16px; border:1px solid var(--olive); background:var(--olive); color:#fff; font-weight:700; cursor:pointer; }
 .briefPanel h2,.momentPanel h2,.decision h2 { font-family:var(--font-display),serif; font-weight:500; letter-spacing:-.055em; line-height:1.04; }
 .briefPanel h2 { font-size:clamp(39px,4vw,56px); margin:13px 0 10px; }
 .muted { margin:0 0 35px; color:var(--muted); }
@@ -172,4 +187,4 @@
 .sources { display:flex; gap:12px; flex-wrap:wrap; margin-top:15px; }
 .sources a { color:var(--olive); }
 @media(max-width:1000px) { .homeGrid { grid-template-columns:1fr; } .homeHero { min-height:470px; padding:70px 6vw 45px; border:0; } .memory { margin-top:40px; padding-top:0; } .momentPanel { padding:55px 6vw; } }
-@media(max-width:700px) { .headerRight { font-size:0; } .headerRight button { font-size:12px; } .homeHero { min-height:auto; padding:60px 24px 45px; } .homeHero h1 { font-size:66px; } .homeHero>p:not(.eyebrow) { font-size:17px; } .memory strong { font-size:24px; } .momentPanel { padding:48px 22px; } .momentPanel h2 { font-size:47px; } .momentButton { padding:16px; } .momentButton strong { font-size:24px; } .samNote { margin:24px 0; padding:17px; } .samNote p:last-child { font-size:18px; } .pick { grid-template-columns:1fr; } .pickImage { min-height:310px; height:330px; } .pickText h2 { font-size:39px; } .decision { grid-template-columns:1fr; gap:22px; padding:26px; } }
+@media(max-width:700px) { .orderCard { grid-template-columns:1fr; } .orderAmount,.orderStatus { text-align:left; } .headerRight { font-size:0; } .headerRight a,.headerRight button { font-size:12px; } .homeHero { min-height:auto; padding:60px 24px 45px; } .homeHero h1 { font-size:66px; } .homeHero>p:not(.eyebrow) { font-size:17px; } .memory strong { font-size:24px; } .momentPanel { padding:48px 22px; } .momentPanel h2 { font-size:47px; } .momentButton { padding:16px; } .momentButton strong { font-size:24px; } .samNote { margin:24px 0; padding:17px; } .samNote p:last-child { font-size:18px; } .pick { grid-template-columns:1fr; } .pickImage { min-height:310px; height:330px; } .pickText h2 { font-size:39px; } .decision { grid-template-columns:1fr; gap:22px; padding:26px; } }

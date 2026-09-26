@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { price } from "@/src/checkout/session";
 import { applyPayment } from "@/src/data/store";
+import { notifyPaidSession } from "@/src/orders/purchases";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,13 @@ export async function POST(req: Request) {
   }
 
   const session = event.data.object;
+  if (session.payment_status === "paid") {
+    try {
+      await notifyPaidSession(session);
+    } catch (error) {
+      console.error("whatsapp confirmation failed", error);
+    }
+  }
   if (session.payment_status !== "paid" || !session.metadata?.items) {
     return NextResponse.json({ received: true, applied: false });
   }

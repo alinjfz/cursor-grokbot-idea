@@ -27,7 +27,7 @@ export async function openCheckout(items: CheckoutItem[], origin: string): Promi
   const stripe = new Stripe(key);
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
-    success_url: `${origin}/?session_id={CHECKOUT_SESSION_ID}`,
+    success_url: `${origin}/orders?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/`,
     line_items: priced.map((item) => ({
       quantity: item.qty,
@@ -47,7 +47,7 @@ export async function openCheckout(items: CheckoutItem[], origin: string): Promi
 }
 
 export async function openVerifiedCheckout(
-  product: { name: string; pricePence: number },
+  product: { name: string; pricePence: number; notifyPhone?: string },
   origin: string,
 ): Promise<Checkout> {
   if (!Number.isInteger(product.pricePence) || product.pricePence < 50) {
@@ -62,7 +62,7 @@ export async function openVerifiedCheckout(
   const stripe = new Stripe(key);
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
-    success_url: `${origin}/?session_id={CHECKOUT_SESSION_ID}`,
+    success_url: `${origin}/orders?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/`,
     line_items: [
       {
@@ -74,7 +74,11 @@ export async function openVerifiedCheckout(
         },
       },
     ],
-    metadata: { source: "discovery" },
+    metadata: {
+      source: "discovery",
+      product_name: name,
+      notify_phone: product.notifyPhone ?? "",
+    },
   });
 
   if (!session.url) throw new Error("Stripe did not return a checkout URL.");
