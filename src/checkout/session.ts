@@ -46,6 +46,41 @@ export async function openCheckout(items: CheckoutItem[], origin: string): Promi
   return { url: session.url, session_id: session.id };
 }
 
+export async function openVerifiedCheckout(
+  product: { name: string; pricePence: number },
+  origin: string,
+): Promise<Checkout> {
+  if (!Number.isInteger(product.pricePence) || product.pricePence < 50) {
+    throw new CheckoutRefusal("Nothing to charge.");
+  }
+  const name = product.name.trim().slice(0, 120);
+  if (!name) throw new CheckoutRefusal("Nothing to charge.");
+
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) throw new Error("Stripe is not configured.");
+
+  const stripe = new Stripe(key);
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    success_url: `${origin}/?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/`,
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: "gbp",
+          unit_amount: product.pricePence,
+          product_data: { name },
+        },
+      },
+    ],
+    metadata: { source: "discovery" },
+  });
+
+  if (!session.url) throw new Error("Stripe did not return a checkout URL.");
+  return { url: session.url, session_id: session.id };
+}
+
 export async function price(items: CheckoutItem[]): Promise<Priced[]> {
   if (items.length === 0) throw new CheckoutRefusal("Nothing to charge.");
 
