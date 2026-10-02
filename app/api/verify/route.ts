@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { openVerifiedCheckout, requestOrigin } from "@/src/checkout/session";
 import { refreshProduct } from "@/src/discovery/shopify";
 import type { ShoppingBrief } from "@/src/discovery/types";
+import { normalizePhone } from "@/src/notify/phone";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +22,11 @@ export async function POST(req: Request) {
     };
     const product = await refreshProduct(id, variantId, brief);
     if (!product) return NextResponse.json({ error: "The product changed or is no longer within your budget. Search again." }, { status: 409 });
-    return NextResponse.json({ checkoutUrl: product.checkoutUrl, pricePence: product.pricePence }, { headers: { "Cache-Control": "no-store" } });
+    const checkout = await openVerifiedCheckout(
+      { name: product.title, pricePence: product.pricePence, notifyPhone: normalizePhone(String(raw.whatsapp || "")) ?? "" },
+      requestOrigin(req),
+    );
+    return NextResponse.json({ url: checkout.url, pricePence: product.pricePence }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("verify failed", error);
     return NextResponse.json({ error: "Could not check the latest product details." }, { status: 500 });
